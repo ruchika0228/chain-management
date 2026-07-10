@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: it_crms_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root1234
+      MYSQL_DATABASE: it_crms
+      MYSQL_USER: crms_user
+      MYSQL_PASSWORD: crms1234
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      # init.sql runs ONCE on first boot (when mysql_data volume is empty)
+      # To re-seed: docker-compose down -v  then docker-compose up
+      - ./database/init.sql:/docker-entrypoint-initdb.d/01_init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot1234"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  backend:
+    build: ./backend
+    container_name: it_crms_backend
+    restart: unless-stopped
+    ports:
+      - "${BACKEND_HOST_PORT:-5005}:${BACKEND_PORT:-5001}"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=${DB_PORT:-3306}
+      - DB_USER=${DB_USER:-root}
+      - DB_PASSWORD=${DB_PASSWORD:-root1234}
+      - DB_NAME=${DB_NAME:-it_crms}
+      - PORT=${BACKEND_PORT:-5001}
+      - SERVER_IP=0.0.0.0
+      - SERVER_HOSTNAME=${SERVER_HOSTNAME:-192.168.1.68}
+      - FRONTEND_URL=http://${SERVER_HOSTNAME:-192.168.1.68}:${FRONTEND_PORT:-8080}
+      - JWT_SECRET=${JWT_SECRET:-itcrms_super_secret_jwt_key_change_in_production_2024}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-8h}
+      - NODE_ENV=production
+    env_file:
+      - .env
+
+  frontend:
+    build: ./frontend
+    container_name: it_crms_frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-8080}:5000"
+    depends_on:
+      - backend
+    environment:
+      - VITE_SERVER_HOSTNAME=${SERVER_HOSTNAME:-192.168.1.68}
+    env_file:
+      - .env
+
+volumes:
+  mysql_data:
+    driver: local
